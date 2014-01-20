@@ -14,15 +14,21 @@ func checkError(err error){
 	}
 }
 
-//Reads message sent from client and prints to console
+//Handles messages from the client
 func handleClient(conn net.Conn){
 	var buf [512]byte
 	for{
-		n, err := conn.Read(buf[0:])	//reads message sent by client (up to 512 bytes of data)
-		if err != nil{
+		n, err_read := conn.Read(buf[0:])	//reads message sent by client (up to 512 bytes of data)
+		if err_read != nil{
 			return
 		}
-		fmt.Println(string(buf[0:n]))	//print the received message to console
+		
+		fmt.Println(string(buf[0:n]))			//print the received message to console
+		
+		_, err_write:= conn.Write(buf[0:n])		//echo the signal back to the client
+		if err_write != nil{
+			return
+		}
 	}
 }
 

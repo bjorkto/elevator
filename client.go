@@ -27,13 +27,22 @@ func main(){
 	for loop{
 		reader := bufio.NewReader(os.Stdin)		//create a reader that reads from console input
 		line, _ := reader.ReadString('\n')		//read entire line of input as string
-		if line == string("exit\r\n") {
+		
+		if line == string("exit\r\n") {			//exit if "exit" has been entered
 			loop = false
+		
 		} else{
-			_, err2 := conn.Write([]byte(line))		//send data to the server
-			checkError(err2)
+			//send data to the server
+			_, err_write := conn.Write([]byte(line))		
+			checkError(err_write)
+			
+			//recieve the response
+			var buf [512]byte
+			n, err_read := conn.Read(buf[0:])
+			checkError(err_read)
+			fmt.Println("Server response: ", string(buf[0:n]))
 		}
 	}
 	
-	conn.Close()
+	conn.Close()	//close connection
 }
