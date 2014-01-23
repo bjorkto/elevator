@@ -10,18 +10,33 @@ import (
 //Error handling
 func checkError(err error){
 	if err != nil {
-		fmt.Fprintf(os.Stderr,"Error: %s", err.Error())
+		fmt.Fprintf(os.Stderr,"Error: %s", err.Error()) 
 		os.Exit(1)
+	}
+}
+
+//Read messages from server and print to console
+func listenToServer(conn net.Conn){
+	for{
+		var buf [512]byte
+		n, err_read := conn.Read(buf[0:])
+		checkError(err_read)
+		fmt.Println("Server says: ", string(buf[0:n]))
 	}
 }
 
 
 func main(){
+
 	//Connect to port 1200 on loacalhost
-	tcpAddr, err := net.ResolveTCPAddr("tcp4", "localhost:1200")
+	service := "localhost:1200"
+	fmt.Println("Attemting to connect to ", service)
+	tcpAddr, err := net.ResolveTCPAddr("tcp4", service)
 	checkError(err)
 	conn, err := net.DialTCP("tcp", nil, tcpAddr)
 	checkError(err)
+	
+	go listenToServer(conn)		//Thread for receiving messages from the server
 	
 	loop := true
 	for loop{
@@ -32,17 +47,9 @@ func main(){
 			loop = false
 		
 		} else{
-			//send data to the server
-			_, err_write := conn.Write([]byte(line))		
-			checkError(err_write)
-			
-			//recieve the response
-			var buf [512]byte
-			n, err_read := conn.Read(buf[0:])
-			checkError(err_read)
-			fmt.Println("Server response: ", string(buf[0:n]))
+			_, err := conn.Write([]byte(line))	//send data to the server	
+			checkError(err)
 		}
 	}
-	
 	conn.Close()	//close connection
 }

@@ -16,6 +16,13 @@ func checkError(err error){
 
 //Handles messages from the client
 func handleClient(conn net.Conn){
+	
+	//print welcome message
+	_, err := conn.Write([]byte("Welcome to the echo server!\n"))
+	if err != nil{
+		return
+	}
+	
 	var buf [512]byte
 	for{
 		n, err_read := conn.Read(buf[0:])	//reads message sent by client (up to 512 bytes of data)
@@ -23,7 +30,7 @@ func handleClient(conn net.Conn){
 			return
 		}
 		
-		fmt.Println(string(buf[0:n]))			//print the received message to console
+		fmt.Println(conn.RemoteAddr(), "says: ", string(buf[0:n]))			//print the received message to console
 		
 		_, err_write:= conn.Write(buf[0:n])		//echo the signal back to the client
 		if err_write != nil{
@@ -46,8 +53,7 @@ func main() {
 		if err != nil {
 			continue
 		}
-		
-		handleClient(conn)		//handle the connection with the client in its own function
-		conn.Close()			//close connection when done
+		fmt.Println("Accepted connection from: ", conn.RemoteAddr())
+		go handleClient(conn)		//handle the connection with the client in its own function
 	}
 }
