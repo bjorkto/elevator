@@ -7,7 +7,46 @@ import (
 		"time"
 		"os/exec"
 		"strings"
+		"math/rand"
 )
+
+
+/*
+------------------------
+-------Constants--------
+------------------------
+*/
+
+//event types
+const (
+	CALL_ELEVATOR_UP = 0		//someone calls the elevator, up direction
+	CALL_ELEVATOR_DOWN = 1		//someone calls the elevator, down direction	
+	FLOOR_REQUEST = 2			//A button on the "choose floor" panel have been pushed
+	SENSOR = 3					//Elevator passes a sensor
+	JOB_DONE = 4				//Elevator has completed a job
+)
+
+
+/*
+------------------------
+-------Structures-------
+------------------------
+*/
+
+
+//struct containing information about an event
+type event struct {
+	eventType int8	//what type of event?
+	floor int8		//where did the event take place?
+}
+
+
+/*
+------------------------
+-------Functions--------
+------------------------
+*/
+
 
 //Error handling
 func checkError(err error){
@@ -17,19 +56,20 @@ func checkError(err error){
     }
 }
 
+
+//Check if master exists by listening for UDP message
 func searchForMaster() (bool, string) {
 	
-	//Listen for a UDP message from the master
     service := ":10001"
-    fmt.Println("Listening for master...", service)
+    fmt.Println("Listening for master...")
     udpAddr, err := net.ResolveUDPAddr("udp4", service)
     checkError(err)
        
     listener, err := net.ListenUDP("udp", udpAddr)
     checkError(err)
 
-	//timeout after 5 seconds
-	listener.SetReadDeadline(time.Now().Add(5*time.Second))
+	//timeout after 3 seconds
+	listener.SetReadDeadline(time.Now().Add(3*time.Second))
 
 	var buf [1024]byte
 	master_exists := false	
@@ -57,18 +97,36 @@ func main(){
     
     //Try to find master
 	exists, address := searchForMaster()
+	
 	//spawn a new master process if not found
 	if (!exists){
-		fmt.Println("I'm my own master!")
+		fmt.Println("Master not found! Starting new master...")
 		cmd := exec.Command("mate-terminal", "-x", "./Master")
 		err := cmd.Start()
 		fmt.Println(err.Error())
 		address = "localhost:10002"
+		time.Sleep(1*time.Second)  //Give the new process some time to set up the server
 	}else{
 		fmt.Println("Master found at", address)
 	}
 	
-	//TODO: connect to master (TCP)
+
+	//Connect to Master (TCP)
+	service := address + ":10002"
+	fmt.Println("Attemting to connect to master...", )
+	tcpAddr, err := net.ResolveTCPAddr("tcp4", service)
+	checkError(err)
+	conn, err := net.DialTCP("tcp", nil, tcpAddr)
+	checkError(err)
+	fmt.Println("Connection established! \nSending events...")
+	
+	//Send random events every two seconds
+	for{
+		time.Sleep(2*time.Second)
+		e := event{eventType: int8(rand.Intn(5)), floor: int8(rand.Intn(4) + 1)}	//create a random event struct
+		bytearray := []byte{byte(e.eventType), byte(e.floor)}
+		conn.Write(bytearray)
+	}
 	
 	var dummy string
 	fmt.Scanln(&dummy)
