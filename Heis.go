@@ -2,101 +2,210 @@ package main
 
 import (
         "fmt"
-        "net"
-        "os"
-		"time"
 		"os/exec"
-		"strings"
-		"math/rand"
+		"time"
+		. "./network"
+		. "./driver"
 )
 
-
 /*
-------------------------
--------Constants--------
-------------------------
-*/
-
-//event types
-const (
-	CALL_ELEVATOR_UP = 0		//someone calls the elevator, up direction
-	CALL_ELEVATOR_DOWN = 1		//someone calls the elevator, down direction	
-	FLOOR_REQUEST = 2			//A button on the "choose floor" panel have been pushed
-	SENSOR = 3					//Elevator passes a sensor
-	JOB_DONE = 4				//Elevator has completed a job
-)
-
-
-/*
-------------------------
--------Structures-------
-------------------------
+-----------------------------
+-------- Constants ----------
+-----------------------------
 */
 
 
-//struct containing information about an event
-type event struct {
-	eventType int8	//what type of event?
-	floor int8		//where did the event take place?
+//pack the sensor channels into a matrix so it is easy to loop through them
+const sensor =[N_FLOOR]int {SENSOR1, SENSOR2, SENSOR3, SENSOR4}
+
+
+/*
+-----------------------------
+------ Types/Structs --------
+-----------------------------
+*/
+
+//contains info about the status of the elevator
+type elevatorStruct struct{
+	uprun [N_FLOOR]bool
+	downrun [N_FLOOR]bool
+	current_floor int
+	dir int
 }
 
 
 /*
-------------------------
--------Functions--------
-------------------------
+-----------------------------
+--------- Globals -----------
+-----------------------------
+*/
+
+//create a elevatorStruct for the elevator connected to this program
+//(only one thread will ever have write access)
+
+var elev = elevatorStruct{
+	{false, false, false, false},
+	{false, false, false, false},
+	0,
+	0,
+}
+
+
+/*
+-----------------------------
+-------- Functions ----------
+-----------------------------
 */
 
 
-//Error handling
-func checkError(err error){
-    if err != nil {
-        fmt.Fprintf(os.Stderr,"Error: %s", err.Error())
-        os.Exit(1)
+
+//Receives events through a channel and adds/removes jobs 
+
+func handleJobArrays(eventChan chan Event){
+    for{
+	
+		//wait for an event
+        event := <- eventChan
+		
+		//update the correct array depending on event type
+	    if (event.EventType==BUTTON_CALL_DOWN) {
+            elev.downrun[event.Floor]=true
+        }else if(event.EventType==BUTTON_CALL_UP) {
+            elev.uprun[event.Floor]=true
+        }else if (event.EventType == BUTTON_COMMAND) {
+            if(event.Floor<current_floor){
+                elev.downrun[event.Floor]=true
+            }else if (event.Floor>current_floor){
+                elev.uprun[event.Floor]=true
+            }
+        }else if(event.EventType == JOB_DONE){
+            elev.uprun[event.Floor] = false
+            elev.downrun[event.Floor] = false
+        } 
+    }  
+}
+
+
+//Scans the joblist between lower_floor and upper_floor and returns true if there is a job
+func isJobs(joblist []bool, int lower_floor, int upper_floor) bool {
+	for i := lower_floor ; i < upper_floor; i++{
+            if (joblist[i]){
+				return true
+        }            
     }
+	return false
 }
 
 
-//Check if master exists by listening for UDP message
-func searchForMaster() (bool, string) {
+//Controls the elevator, sends a JOB_DONE event when a job is completed
+func elevator(eventChan chan Event){
+
+    var up = bool(false)
+	var down = bool(false)
 	
-    service := ":10001"
-    fmt.Println("Listening for master...")
-    udpAddr, err := net.ResolveUDPAddr("udp4", service)
-    checkError(err)
-       
-    listener, err := net.ListenUDP("udp", udpAddr)
-    checkError(err)
-
-	//timeout after 3 seconds
-	listener.SetReadDeadline(time.Now().Add(3*time.Second))
-
-	var buf [1024]byte
-	master_exists := false	
-	master_address := ""
-
-	for !master_exists{
-		n, addr, _ := listener.ReadFromUDP(buf[0:])	//read UDP message
-	
-		msg:=string(buf[0:n]);
-
-		if(n==0){
-			//timeout has happened
-			break		
-		}else if(msg=="Stian og Vegards heiser"){
-			//master exists
-			master_exists = true		
-			full_address := fmt.Sprintf("%v", addr)	//convert master address to string	
-			master_address = full_address[0:strings.Index(full_address, ":")]  //remove the udp port number
+	for{
+        //need to sleep a bit because the go runtime is stupid...
+        Sleep(1*Millisecond)
+				
+		//Is it upgoing jobs above the current floor?
+        up = isJobs(elev.uprun, elev.current_floor+1, N_FLOOR)
+        
+		//Is it upgoing jobs below the current floor?
+        if isJobs(elev.uprun, 0, elev.current_floor-1){
+			
+			//create a downgoing event...?
+			eventChan <- Event{BUTTON_CALL_DOWN, i}
 		}
+		
+		//Is it downgoing jobs below the current floor?
+        down = isJobs(elev.downrun, 0, elev.current_floor-1)
+        
+		//Is it downgoing jobs above the current floor?
+        if isJobs(elev.downrun, elev.current_floor+1, N_FLOOR){
+			
+			//create an upgoing job... ?
+            eventChan <- Event{BUTTON_CALL_UP, i}
+        }             
+        
+		//While going up:       
+        for up{
+			
+			//full speed ahead
+			elev.dir = 1
+            Set_speed(100)
+				
+			//Keep polling the sensors until job is completed
+            complete := false
+            for !complete {
+                for i:=elev.current_floor+1;i<N_FLOOR;i++{
+                    if (Io_read_bit(sensor[i]) == 1) {
+						//update current floor when passing a sensor
+						elev.current_floor=i
+						if (i == N_FLOOR-1 || elev.uprun[i]){
+							//stop if there is a job or we are at the top floor
+							complete = true
+							break
+                        }
+                    }
+                }
+			}
+			
+			//stop!!!
+            Set_speed(0)
+			elev.dir=0
+				
+			//signal that the job is complete
+            eventChan <- Event{JOB_DONE, elev.current_floor}
+            Sleep(2*Second)
+                
+                
+            //Is there still more upgoing jobs above?
+            up = isJobs(elev.uprun, elev.current_floor+1, N_FLOOR)				              
+        }
+        
+        //If going down
+		for down{
+           	//Full speed ahead!
+			dir = -1;
+            Set_speed(-100)
+				
+			//Keep polling the sensors until job is completed
+			complete := false
+            for !complete {
+                for i:=0;i<elev.current_floor;i++{
+                    if (Io_read_bit(sensor[i]) == 1) {
+						//update current floor when passing a sensor
+                        elev.current_floor=i
+						if (i == 0 || elev.downrun[i]){
+							//stop if there is a job or we are at the bottom floor
+							complete = true
+							break
+						}
+					}
+                }
+            }
+				
+			//stop!!!!
+            Set_speed(0)
+            elev.dir=0
+				
+			//signal that the job is done
+			eventChan <- Event{JOB_DONE, elev.current_floor}
+            Sleep(2*Second)
+                
+            //Are there still more downgoing jobs below?
+			down = isJobs(elev.downrun, 0, elev.current_floor-1)
+			
+        }
+    //Let the cycle begin again
 	}
-	return master_exists, master_address
 }
+
 
 func main(){
     
     //Try to find master
-	exists, address := searchForMaster()
+	exists, address := SearchForMaster(":10001")
 	
 	//spawn a new master process if not found
 	if (!exists){
@@ -110,24 +219,32 @@ func main(){
 		fmt.Println("Master found at", address)
 	}
 	
-
-	//Connect to Master (TCP)
-	service := address + ":10002"
-	fmt.Println("Attemting to connect to master...", )
-	tcpAddr, err := net.ResolveTCPAddr("tcp4", service)
-	checkError(err)
-	conn, err := net.DialTCP("tcp", nil, tcpAddr)
-	checkError(err)
-	fmt.Println("Connection established! \nSending events...")
 	
-	//Send random events every two seconds
-	for{
-		time.Sleep(2*time.Second)
-		e := event{eventType: int8(rand.Intn(5)), floor: int8(rand.Intn(4) + 1)}	//create a random event struct
-		bytearray := []byte{byte(e.eventType), byte(e.floor)}
-		conn.Write(bytearray)
+	//Connect to Master (TCP)
+	conn := ConnectToMaster(address)
+	if (conn == nil){
+		fmt.Println("Could not connect to master...")
+		return
 	}
 	
-	var dummy string
-	fmt.Scanln(&dummy)
+	
+	//Init elevator and print status
+	fmt.Println(Elev_init())
+	
+	//create channel to send events
+	eventChan := make(chan Event)
+	
+	//start threads to handle the jobs and the elevator
+	go handleJobArrays(eventChan)
+	go elevator(eventChan)
+	
+	//Wait for someone to push a button
+	for{
+	    event := Look_for_events()
+	    if (event.EventType >= 0 && event.EventType <= 3){
+	        eventChan <- event
+	    }
+        Sleep(10*Millisecond)
+    }
+	
 }

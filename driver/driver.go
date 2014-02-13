@@ -135,7 +135,7 @@ func Set_door_open_lamp(value int){
     }
 }
 
-//Poll all the buttons for a 
+//Poll all the buttons for a button event
 func Look_for_events() Event{
     for i:=0; i<N_FLOORS;i++{
         for j:=0; j<N_BUTTONS;j++{
