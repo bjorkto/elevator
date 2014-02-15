@@ -6,16 +6,13 @@ import (
 		"net"
 		"os"
 		"strings"
+		"strconv"
+		"os/exec"
 )
 
 
-//Error handling
-func checkError(err error){
-    if err != nil {
-        fmt.Fprintf(os.Stderr,"Error: %s", err.Error())
-        os.Exit(1)
-    }
-}
+var NetworkMode = bool(true)
+
 
 /*
 -------------------------------------------
@@ -41,7 +38,7 @@ func BroadcastUDP(service string){
 
 
 //Set up a TCP server and listen for connections
-func StartTCPServer(port string, connChan chan *net.TCPConn){
+func StartTCPServer(port string, newconnChan chan *net.TCPConn, delconnChan chan *net.TCPConn){
 	    
 	tcpAddr, err := net.ResolveTCPAddr("tcp4", port)
     checkError(err)
@@ -59,24 +56,34 @@ func StartTCPServer(port string, connChan chan *net.TCPConn){
 		fmt.Println("Accepted connection from: ", conn.RemoteAddr())	//print address of the client
 		
 		//Send the connection pointer to the main thread
-		connChan <- conn
+		newconnChan <- conn
 		
 		//spawn go-routine that reads messages from the client 
-		go ListenToClient(conn)
+		go sendhandshake(conn)
+		go ListenToClient(conn, delconnChan)
 	}
 }
 
 
 //Listen for messages from the client
-func ListenToClient(conn *net.TCPConn){
+func ListenToClient(conn *net.TCPConn, delconnChan chan *net.TCPConn){
 	addr := conn.RemoteAddr()
+	var buf [1024]byte
 	for{
-		var buf [1024]byte
-        n, err := conn.Read(buf[0:])		//read message
-		if err != nil {
-			fmt.Println(err.Error())
+		//set timeout to two seconds
+		conn.SetReadDeadline(time.Now().Add(2*time.Second))
+		
+		//read message
+		n, err := conn.Read(buf[0:])
+		
+		//if error or timeout happens, assume we have lost connection with the client
+		if (err != nil || n == 0) {
+			fmt.Println("Lost connection with", conn.RemoteAddr())
+			delconnChan <- conn
+			conn.Close()
 			return
 		}
+		
 		fmt.Println(addr, " says: ", string(buf[0:n])) 
 		
     }
@@ -92,8 +99,6 @@ func ListenToClient(conn *net.TCPConn){
 
 //Check if master exists by listening for UDP message
 func SearchForMaster(port string) (bool, string) {
-	
-    fmt.Println("Listening for master...")
     udpAddr, err := net.ResolveUDPAddr("udp4", port)
     checkError(err)
        
@@ -108,6 +113,7 @@ func SearchForMaster(port string) (bool, string) {
 	master_address := ""
 
 	for !master_exists{
+		
 		n, addr, _ := listener.ReadFromUDP(buf[0:])	//read UDP message
 	
 		msg:=string(buf[0:n]);
@@ -122,6 +128,7 @@ func SearchForMaster(port string) (bool, string) {
 			master_address = full_address[0:strings.Index(full_address, ":")]  //remove the udp port number
 		}
 	}
+	listener.Close()
 	return master_exists, master_address
 }
 
@@ -140,5 +147,113 @@ func ConnectToMaster(masterAddr string) *net.TCPConn{
 		return nil
 	}
 	fmt.Println("Connection established!")
+	
+	go sendhandshake(conn)
+	go ListenToMaster(conn)
+	
 	return conn
 }
+
+
+func StartNewMaster(){
+	fmt.Println("Starting new master...")
+	cmd := exec.Command("mate-terminal", "-x", "go", "run",  "Master.go")
+	err := cmd.Start()
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+}
+
+
+//Handle a lost connection to the master
+func handleLostConnection(masterQueue int){
+	fmt.Println("Lost connection with Master")
+	exist := false
+	masteraddr := ""
+	//try to find or create a new master, based on the place in the queue
+	for !exist {
+		if(masterQueue == 1){
+			fmt.Println("I'm the new master")
+			StartNewMaster()
+			masterQueue = -1
+		if(masterQueue < 1){
+			fmt.Println("Something is very wrong... I cannot even connect to myself!")
+			fmt.Println("Changing to non network mode")
+			NetworkMode = false
+		}
+		}else{
+			masterQueue -= 1
+			fmt.Println("Searching for new master... becoming master in master", masterQueue, "tries")
+		}
+		exist, masteraddr = SearchForMaster(":10001")
+	}
+	//Connect to the new master
+	ConnectToMaster(masteraddr)
+}
+
+
+//Listening to master for orders 
+func ListenToMaster(conn *net.TCPConn){
+	masterQueue := -1
+	var buf [1024]byte
+        
+	for{
+		
+		//set timeout to two seconds
+		conn.SetReadDeadline(time.Now().Add(2*time.Second))
+		
+		//read message
+		n, err := conn.Read(buf[0:])
+		
+		//if error or timeout happens, assume we have lost connection with the master
+		if (err != nil || n == 0) {
+			conn.Close()
+			handleLostConnection(masterQueue)
+			return
+		}
+		
+		msgType := buf[0]
+        switch msgType{
+			case 0:
+				//type 0 is only a handshake. Nothing to handle. 
+			case 1:
+				//type 1 is the place in the queue to become the new master if anything goes wrong
+				masterQueue, _ = strconv.Atoi(string(buf[1:n]))
+				fmt.Println(masterQueue)
+				break
+			case 2:
+				//type 2 is a jobOrder.
+				break
+			case 3:
+				//type 3 is a backup
+		}
+    }
+}
+
+
+/*
+-------------------------------------------
+--------- Shared functionallity -----------
+-------------------------------------------
+*/
+
+
+//send a handshake to signal that the process is still alive and connected
+func sendhandshake(conn *net.TCPConn){
+	for{
+		_, err := conn.Write([]byte("Handshake"))
+		if err != nil {
+			return
+		}
+	}
+}
+
+//just print the error message
+func checkError(err error){
+    if err != nil {
+        fmt.Fprintf(os.Stderr,"Error: %s", err.Error())
+        os.Exit(1)
+    }
+}
+
+

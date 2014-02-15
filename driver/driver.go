@@ -3,6 +3,7 @@
 package driver
 
 import . "math"
+import . "time"
 
 
 /*
@@ -23,14 +24,14 @@ const (
 )
 
 //pack lamp and button channels into matrices to be able to loop through them
-const  lamp_channel_matrix = [N_FLOORS][N_BUTTONS]int {
-	{LIGHT_DOWN1, LIGHT_UP1, LIGHT_COMMAND1},
-	{LIGHT_DOWN2, LIGHT_UP2, LIGHT_COMMAND2},
-	{LIGHT_DOWN3, LIGHT_UP3, LIGHT_COMMAND3},
-	{LIGHT_DOWN4, LIGHT_UP4, LIGHT_COMMAND4},
+var lamp_channel_matrix = [N_FLOORS][N_BUTTONS]int {
+	{LIGHT_UP1, LIGHT_DOWN1, LIGHT_COMMAND1},
+	{LIGHT_UP2, LIGHT_DOWN2, LIGHT_COMMAND2},
+	{LIGHT_UP3, LIGHT_DOWN3, LIGHT_COMMAND3},
+	{LIGHT_UP4, LIGHT_DOWN4, LIGHT_COMMAND4},
 }
 
-const  button_channel_matrix = [N_FLOORS][N_BUTTONS]int {
+var  button_channel_matrix = [N_FLOORS][N_BUTTONS]int {
     {FLOOR_UP1, FLOOR_DOWN1, FLOOR_COMMAND1},
     {FLOOR_UP2, FLOOR_DOWN2, FLOOR_COMMAND2},
     {FLOOR_UP3, FLOOR_DOWN3, FLOOR_COMMAND3},
@@ -108,7 +109,7 @@ func Set_floor_indicator(floor int ){
 }
 
 
-func Set_button_lamp( button button_type, floor int , value int ){ 
+func Set_button_lamp( button int, floor int , value int ){ 
 	if value == 1 {
 	    Io_set_bit(lamp_channel_matrix[floor][button]);
     } else {
@@ -165,9 +166,12 @@ func Set_speed( speed int){
 		if (last_speed < 0){
 		    Io_clear_bit(MOTORDIR);
 		}else if (last_speed > 0){
-		    Io_set_bit(MOTORDIR);
+		    Io_set_bit(MOTORDIR);    
         }
+        //Applying break force for 10ms
+		Sleep(10*Millisecond)
     }
+    
 
     last_speed = speed ;
 
