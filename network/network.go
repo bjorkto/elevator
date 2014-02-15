@@ -216,6 +216,7 @@ func ListenToMaster(conn *net.TCPConn){
         switch msgType{
 			case 0:
 				//type 0 is only a handshake. Nothing to handle. 
+				break
 			case 1:
 				//type 1 is the place in the queue to become the new master if anything goes wrong
 				masterQueue, _ = strconv.Atoi(string(buf[1:n]))
