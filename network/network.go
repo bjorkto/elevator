@@ -89,7 +89,7 @@ func ListenToClient(conn *net.TCPConn, delconnChan chan *net.TCPConn, msgChan ch
 		var m Message
 		m.Sender = conn
 		m.Msg = string(buf[0:n])
-      msgChan <- m
+        msgChan <- m
 		
     }
 }
@@ -155,6 +155,7 @@ func ConnectToMaster(masterAddr string, msgChan chan Message, lostMasterChan cha
 	}
 	fmt.Println("Connection established!")
 	
+	//start threads that reads messages from master and sends handshakes
 	go sendhandshake(conn)
 	go ListenToMaster(conn, msgChan, lostMasterChan)
 	
@@ -162,6 +163,7 @@ func ConnectToMaster(masterAddr string, msgChan chan Message, lostMasterChan cha
 }
 
 
+//Start a new master process
 func StartNewMaster(){
 	fmt.Println("Starting new master...")
 	cmd := exec.Command("mate-terminal", "-x", "go", "run",  "Master.go")
@@ -174,7 +176,7 @@ func StartNewMaster(){
 
 //Handle a lost connection to the master
 func HandleLostConnection(masterQueue int, msgChan chan Message, lostMasterChan chan bool) *net.TCPConn{
-	fmt.Println("Lost connection with Master")
+	fmt.Println("Lost connection with Master, trying to resolve... ")
 	exist := false
 	masteraddr := ""
 	//try to find or create a new master, based on the place in the queue

@@ -11,7 +11,16 @@ import (
 )
 
 
+/*
+-----------------------------
+---------- Globals ----------
+-----------------------------
+*/
+
+
+//Elevator map to keep track of all connected elevators
 var emap = make(ElevatorMap)
+
 
 /*
 -----------------------------
@@ -19,6 +28,8 @@ var emap = make(ElevatorMap)
 -----------------------------
 */
 
+
+//handles messages from a slave (received from the network module)
 func handleMessages(msgChan chan Message){
 
    for {
@@ -48,7 +59,7 @@ func handleMessages(msgChan chan Message){
 			   }
 				break
 			case 3:
-			   //update on information from elevator
+			   //updated information about an elevator
 			   var estruct ElevatorStruct
 			   fields := strings.Fields(m.Msg[1:])
 			   for i:= 0; i< N_FLOORS; i++{
@@ -83,32 +94,31 @@ func findMostSuitable(buttonEvent Event, emap ElevatorMap) (*net.TCPConn){
 	tempDist := 0
 	maxFloor := -1
 
-	for key, elevator := range emap {	
+	//examine every elevator in the elevator map too see which is the best
+	for key, elevator := range emap {
 		if (dir==elevator.Dir || elevator.Dir==0){
 			tempDist = int(Abs(float64(elevator.Current_floor-floor)))
-			if tempDist<bestDist{
-				bestDist=tempDist
-				bestElev=key;
-			}else if tempDist==bestDist && elevator.Dir==0{
+			if tempDist<bestDist || (tempDist==bestDist && elevator.Dir==0){
 				bestDist=tempDist
 				bestElev=key;
 			}
 		}else{
 			if elevator.Dir==1{
-				for j:=len(elevator.Uprun)-1; j>=0;j-- {
+				for j:=N_FLOORS-1; j>=0;j-- {
 					if (elevator.Uprun[j] == true){
 						maxFloor=j+1
 						break
 					}
 				}
 			}else{
-				for j:=0; j<len(elevator.Downrun);j++ {
+				for j:=0; j<N_FLOORS;j++ {
 					if (elevator.Downrun[j] == true){
 						maxFloor=j+1
 						break
 					}
 				}
 			}
+			//possible bug here? 
 			tempDist = int(Abs(float64(elevator.Current_floor-floor))+2*Abs(float64(maxFloor-elevator.Current_floor)))
 			if tempDist<bestDist{
 				bestDist=tempDist
@@ -122,20 +132,22 @@ func findMostSuitable(buttonEvent Event, emap ElevatorMap) (*net.TCPConn){
 
 
 func main(){
-	//create a elevatorMap to keep track of all connected clients
 	
-	//channel to receive information about new connections
+	//channels to communicate with network module
 	newconnChan := make(chan *net.TCPConn)
 	delconnChan := make(chan *net.TCPConn)
 	msgChan := make(chan Message)
+	
 	//start the TCP server in its own thread
 	go StartTCPServer(":10002", newconnChan, delconnChan, msgChan)
 	
 	//start the UDP broadcasting in its own thread
 	go BroadcastUDP("129.241.187.255:10001")
 	
+	//start thread to handle messages from slaves
 	go handleMessages(msgChan)
 	
+	//Wait for something to happen... 
 	//for each new connection, make a new entry in the elevatorMap
 	for{
 		select{

@@ -6,7 +6,6 @@ import (
 		. "./network"
 		. "./driver"
 		. "./datatypes"
-		"time"
 		"strconv"
 		"strings"
 		
@@ -50,7 +49,7 @@ var masterQueue = int(1)
 
 
 
-//Receives events through a channel and adds/removes jobs 
+//Receives events through a channel and updates the elevator structure accordingly
 
 func handleJobArrays(eventChan chan Event, updateMasterChan chan bool){
     for{
@@ -104,6 +103,9 @@ func elevator(eventChan chan Event){
         //need to sleep a bit because the go runtime is stupid...
         Sleep(1*Millisecond)
 				
+		
+		elev.Dir = 0
+		
 		//Is it upgoing jobs above the current floor?
         up, _ := isJobs(elev.Uprun, elev.Current_floor+1, N_FLOORS)
         
@@ -149,18 +151,17 @@ func elevator(eventChan chan Event){
 			}
 			
 			//stop!!!
-         Set_speed(0)
-			elev.Dir=0
+			Set_speed(0)
 				
 			//signal that the job is complete
-         eventChan <- Event{JOB_DONE, elev.Current_floor}
-         Sleep(2*Second)
+			eventChan <- Event{JOB_DONE, elev.Current_floor}
+			Sleep(2*Second)
                 
-         //Is there still more upgoing jobs above?
-         up, _ = isJobs(elev.Uprun, elev.Current_floor+1, N_FLOORS)				              
+			//Is there still more upgoing jobs above?
+			up, _ = isJobs(elev.Uprun, elev.Current_floor+1, N_FLOORS)				              
         }
         
-      //If going down
+		//While going down
 		for down{
         	//Full speed ahead!
 			elev.Dir = -1;
@@ -184,14 +185,13 @@ func elevator(eventChan chan Event){
             }
 				
 			//stop!!!!
-         Set_speed(0)
-         elev.Dir=0
+			Set_speed(0)
 				
 			//signal that the job is done
 			eventChan <- Event{JOB_DONE, elev.Current_floor}
-         Sleep(2*Second)
+			Sleep(2*Second)
                 
-         //Are there still more downgoing jobs below?
+			//Are there still more downgoing jobs below?
 			down, _ = isJobs(elev.Downrun, 0, elev.Current_floor-1)
 			
         }
@@ -209,18 +209,18 @@ func lookForLocalEvents(newEventChan chan Event){
 	        Set_button_lamp(event.EventType, event.Floor, 1)
 	        newEventChan <- event
 	   }
-      time.Sleep(10*Millisecond)
+		Sleep(10*Millisecond)
    }
 }
 
 
-//interprets and handles messages from the master
+//interprets and handles messages from the master (received from network module)
 func handleMasterMessage(msgChan chan Message, handleEventChan chan Event){
    for {
-      m:= <- msgChan
-      //first bit is an id telling us what type of message it is
-      msgType, _ := strconv.Atoi(string(m.Msg[0]))
-      switch msgType{
+		m:= <- msgChan
+		//first bit is an id telling us what type of message it is
+		msgType, _ := strconv.Atoi(string(m.Msg[0]))
+		switch msgType{
 			case 0:
 				//type 0 is only a handshake. Nothing to handle. 
 				break
@@ -230,7 +230,7 @@ func handleMasterMessage(msgChan chan Message, handleEventChan chan Event){
 				fmt.Println(masterQueue)
 				break
 			case 2:
-				//Event
+				//Event (Job order)
 				fields := strings.Fields(m.Msg[1:])
 				var e Event
 				e.EventType, _ = strconv.Atoi(fields[0])
@@ -261,7 +261,7 @@ func main(){
 	//Connect to Master (TCP)
 	conn := ConnectToMaster(address, msgChan, lostMasterChan)
 	if (conn == nil){
-		//if no connection can be made, somehting is wrong with the network. Start the program in not network mode instead
+		//if no connection can be made, somehting is wrong with the network. Start the program in non network mode instead
 		fmt.Println("Could not connect to master. Starting program in non network mode")
 		NetworkMode = false
 	}
@@ -284,36 +284,36 @@ func main(){
 	
 	//start threads that look for local events and handles messages from the master
 	go lookForLocalEvents(localEventChan)
-   go handleMasterMessage(msgChan, handleEventChan)
+    go handleMasterMessage(msgChan, handleEventChan)
 
-	//Wait for something to happen
+	//Wait for something to happen.
 	for{
-      select{
-         case event := <- localEventChan:
-      
-   		   if !NetworkMode{
-	   			//handle all events localy if not running in NetworkMode
-	   			handleEventChan <- event
-			   } else {
-				   //send events to the master
-				   SendMessage(conn, event)
-			   }
-			   break
+		select{
+			case event := <- localEventChan:
+		  
+			   if !NetworkMode{
+					//handle all events localy if not running in NetworkMode
+					handleEventChan <- event
+					} else {
+						//send events to the master
+						SendMessage(conn, event)
+				}
+				break
 			case <- updateMasterChan:
-			   //send info about the elevator to the master
-			   if NetworkMode{
-			      SendMessage(conn, elev)
-			   }
-			   break
-		   case <- lostMasterChan:
-		      //lost connection with master. Try to resolve
-		      conn = HandleLostConnection(masterQueue, msgChan, lostMasterChan)
-		      
-		      //if resolved, send current status to the new master
-		      if (conn != nil){
-		         SendMessage(conn, elev)
-		      }
-		      break
-	    }
+				//send updated info about the elevator to the master
+				if NetworkMode{
+					SendMessage(conn, elev)
+				}
+				break
+			case <- lostMasterChan:
+				//lost connection with master. Try to resolve
+				conn = HandleLostConnection(masterQueue, msgChan, lostMasterChan)
+				 
+				//if resolved, send current status to the new master
+				if (conn != nil){
+					SendMessage(conn, elev)
+				}
+				break
+		}
     }	
 }
