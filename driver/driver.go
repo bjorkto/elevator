@@ -4,6 +4,7 @@ package driver
 
 import . "math"
 import . "time"
+import . "../datatypes"
 
 
 /*
@@ -12,16 +13,6 @@ import . "time"
 -----------------------------
 */
 
-const N_FLOORS = 4
-const N_BUTTONS = 3
-
-//event types
-const (
-	BUTTON_CALL_UP = 0
-	BUTTON_CALL_DOWN = 1
-	BUTTON_COMMAND = 2
-	JOB_DONE = 3
-)
 
 //pack lamp and button channels into matrices to be able to loop through them
 var lamp_channel_matrix = [N_FLOORS][N_BUTTONS]int {
@@ -39,19 +30,21 @@ var  button_channel_matrix = [N_FLOORS][N_BUTTONS]int {
 }
 
 
+
 /*
 -----------------------------
------- Types/Structs --------
+--------- Globals -----------
 -----------------------------
 */
 
 
-type button_type int
-
-type Event struct{
-    EventType int
-    Floor int
+var  is_pressed = [N_FLOORS][N_BUTTONS]int {
+    {0, 0, 0},
+    {0, 0, 0},
+    {0, 0, 0},
+    {0, 0, 0},
 }
+
 
 
 /*
@@ -137,11 +130,14 @@ func Set_door_open_lamp(value int){
 }
 
 //Poll all the buttons for a button event
-func Look_for_events() Event{
+func Poll_buttons() Event{
     for i:=0; i<N_FLOORS;i++{
         for j:=0; j<N_BUTTONS;j++{
-            if(Io_read_bit(button_channel_matrix[i][j])==1){
+            if(Io_read_bit(button_channel_matrix[i][j])==1 && is_pressed[i][j] == 0){
+                is_pressed[i][j] = 1
                 return Event{j,i}
+            } else if (Io_read_bit(button_channel_matrix[i][j])==0){
+                is_pressed[i][j] = 0
             }
         }
     }

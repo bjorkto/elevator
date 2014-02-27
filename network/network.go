@@ -8,6 +8,7 @@ import (
 		"strings"
 		"strconv"
 		"os/exec"
+		. "../datatypes"
 )
 
 
@@ -38,7 +39,7 @@ func BroadcastUDP(service string){
 
 
 //Set up a TCP server and listen for connections
-func StartTCPServer(port string, newconnChan chan *net.TCPConn, delconnChan chan *net.TCPConn){
+func StartTCPServer(port string, newconnChan chan *net.TCPConn, delconnChan chan *net.TCPConn, msgChan chan Message){
 	    
 	tcpAddr, err := net.ResolveTCPAddr("tcp4", port)
     checkError(err)
@@ -58,16 +59,16 @@ func StartTCPServer(port string, newconnChan chan *net.TCPConn, delconnChan chan
 		//Send the connection pointer to the main thread
 		newconnChan <- conn
 		
-		//spawn go-routine that reads messages from the client 
+		//spawn go-routines that reads messages from the client and sends handshakes 
 		go sendhandshake(conn)
-		go ListenToClient(conn, delconnChan)
+		go ListenToClient(conn, delconnChan, msgChan)
 	}
 }
 
 
 //Listen for messages from the client
-func ListenToClient(conn *net.TCPConn, delconnChan chan *net.TCPConn){
-	addr := conn.RemoteAddr()
+func ListenToClient(conn *net.TCPConn, delconnChan chan *net.TCPConn, msgChan chan Message){
+	client_addr := conn.RemoteAddr()
 	var buf [1024]byte
 	for{
 		//set timeout to two seconds
@@ -78,16 +79,22 @@ func ListenToClient(conn *net.TCPConn, delconnChan chan *net.TCPConn){
 		
 		//if error or timeout happens, assume we have lost connection with the client
 		if (err != nil || n == 0) {
-			fmt.Println("Lost connection with", conn.RemoteAddr())
+			fmt.Println("Lost connection with", client_addr)
 			delconnChan <- conn
 			conn.Close()
 			return
 		}
 		
-		fmt.Println(addr, " says: ", string(buf[0:n])) 
+		//send message to the master thread that handles it
+		var m Message
+		m.Sender = conn
+		m.Msg = string(buf[0:n])
+      msgChan <- m
 		
     }
 }
+
+
 
 
 /*
@@ -134,7 +141,7 @@ func SearchForMaster(port string) (bool, string) {
 
 
 //connect to master with TCP
-func ConnectToMaster(masterAddr string) *net.TCPConn{
+func ConnectToMaster(masterAddr string, msgChan chan Message, lostMasterChan chan bool) *net.TCPConn{
 	
 	service := masterAddr + ":10002"
 	fmt.Println("Attemting to connect to master...", )
@@ -149,7 +156,7 @@ func ConnectToMaster(masterAddr string) *net.TCPConn{
 	fmt.Println("Connection established!")
 	
 	go sendhandshake(conn)
-	go ListenToMaster(conn)
+	go ListenToMaster(conn, msgChan, lostMasterChan)
 	
 	return conn
 }
@@ -166,7 +173,7 @@ func StartNewMaster(){
 
 
 //Handle a lost connection to the master
-func handleLostConnection(masterQueue int){
+func HandleLostConnection(masterQueue int, msgChan chan Message, lostMasterChan chan bool) *net.TCPConn{
 	fmt.Println("Lost connection with Master")
 	exist := false
 	masteraddr := ""
@@ -176,11 +183,11 @@ func handleLostConnection(masterQueue int){
 			fmt.Println("I'm the new master")
 			StartNewMaster()
 			masterQueue = -1
-		if(masterQueue < 1){
+		}else if(masterQueue < 1){
 			fmt.Println("Something is very wrong... I cannot even connect to myself!")
 			fmt.Println("Changing to non network mode")
 			NetworkMode = false
-		}
+			return nil
 		}else{
 			masterQueue -= 1
 			fmt.Println("Searching for new master... becoming master in master", masterQueue, "tries")
@@ -188,13 +195,13 @@ func handleLostConnection(masterQueue int){
 		exist, masteraddr = SearchForMaster(":10001")
 	}
 	//Connect to the new master
-	ConnectToMaster(masteraddr)
+	conn := ConnectToMaster(masteraddr, msgChan, lostMasterChan)
+	return conn
 }
 
 
-//Listening to master for orders 
-func ListenToMaster(conn *net.TCPConn){
-	masterQueue := -1
+//Listening to messages from the master
+func ListenToMaster(conn *net.TCPConn, msgChan chan Message, lostMasterChan chan bool ){
 	var buf [1024]byte
         
 	for{
@@ -206,28 +213,18 @@ func ListenToMaster(conn *net.TCPConn){
 		n, err := conn.Read(buf[0:])
 		
 		//if error or timeout happens, assume we have lost connection with the master
-		if (err != nil || n == 0) {
+		if (err != nil || n == 0) {			
+			lostMasterChan <- true
 			conn.Close()
-			handleLostConnection(masterQueue)
 			return
 		}
-		
-		msgType := buf[0]
-        switch msgType{
-			case 0:
-				//type 0 is only a handshake. Nothing to handle. 
-				break
-			case 1:
-				//type 1 is the place in the queue to become the new master if anything goes wrong
-				masterQueue, _ = strconv.Atoi(string(buf[1:n]))
-				fmt.Println(masterQueue)
-				break
-			case 2:
-				//type 2 is a jobOrder.
-				break
-			case 3:
-				//type 3 is a backup
-		}
+      
+      //converte the message to a string and send it over a channel to the handler		
+		var m Message
+		m.Sender = conn
+		m.Msg = string(buf[0:n])
+      msgChan <- m
+      
     }
 }
 
@@ -242,7 +239,8 @@ func ListenToMaster(conn *net.TCPConn){
 //send a handshake to signal that the process is still alive and connected
 func sendhandshake(conn *net.TCPConn){
 	for{
-		_, err := conn.Write([]byte("Handshake"))
+	   time.Sleep(time.Second);
+		_, err := conn.Write([]byte("0Handshake"))
 		if err != nil {
 			return
 		}
@@ -257,4 +255,30 @@ func checkError(err error){
     }
 }
 
-
+//send data over the TCP connection
+//data can theoretically be of any type, find out wich by using switch on the type
+func SendMessage(conn *net.TCPConn, data interface{}){
+   switch data.(type){
+      case Event:
+         //data is a button event
+         data := data.(Event)
+         msg := "2" + strconv.Itoa(data.EventType) + " " + strconv.Itoa(data.Floor)
+         conn.Write([]byte(msg))
+         break
+         
+      case ElevatorStruct:
+         //data is an elevatorStruct
+         data := data.(ElevatorStruct)
+         msg := "3";
+         for i:= 0; i< N_FLOORS; i++{
+            msg += strconv.FormatBool(data.Uprun[i]) + " "
+         }
+         for i:= 0; i < N_FLOORS; i++{
+            msg += strconv.FormatBool(data.Downrun[i]) + " "
+         }
+         msg += strconv.Itoa(data.Current_floor) + " "
+         msg += strconv.Itoa(data.Dir)
+         conn.Write([]byte(msg))
+         break
+   }
+}
