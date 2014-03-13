@@ -29,6 +29,8 @@ var  button_channel_matrix = [N_FLOORS][N_BUTTONS]int {
     {FLOOR_UP4, FLOOR_DOWN4, FLOOR_COMMAND4},
 }
 
+//pack the sensor channels into a matrix so it is easy to loop through them
+var Sensor = [N_FLOORS]int{SENSOR1, SENSOR2, SENSOR3, SENSOR4}
 
 
 /*
@@ -55,11 +57,11 @@ var  is_pressed = [N_FLOORS][N_BUTTONS]int {
 
 
 
-func Elev_init() int{
+func Elev_init() (int, int){
     
     // Init hardware
     if (Io_init() == 0) {
-        return 0;
+        return 0, 0;
 	}
     // Zero all floor button lamps
     for i := 0; i < N_FLOORS; i++ {
@@ -80,9 +82,20 @@ func Elev_init() int{
     Set_stop_lamp(0);
     Set_door_open_lamp(0);
     Set_floor_indicator(0);
-
+	
+	 //find out which floor the elevator is at
+	 floor := 0
+	 for i := 0; i < N_FLOORS; i++{
+	 	if (Io_read_bit(Sensor[i]) == 1){
+			floor = i
+		}
+	 }
+	 
+	 //stop motor
+	 Set_speed(0)
+	 
     // Return success.
-    return 1;
+    return 1, floor;
 }
 
 func Set_floor_indicator(floor int ){
