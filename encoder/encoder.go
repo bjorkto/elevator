@@ -9,7 +9,7 @@ import (
 )
 
 func EncodeEvent(e Event) string {
-	msg := "2" + strconv.Itoa(e.EventType) + " " + strconv.Itoa(e.Floor)
+	msg := "2" + strconv.Itoa(e.EventType) + " " + strconv.Itoa(e.Floor) + "\n"
 	return msg
 }
 
@@ -24,13 +24,13 @@ func DecodeEvent(msg string) Event {
 func EncodeElevatorStruct(elev ElevatorStruct) string {
 	msg := "3"
 	for i := 0; i < N_FLOORS; i++ {
-		msg += strconv.FormatBool(elev.Uprun[i]) + " "
+		msg += strconv.Itoa(elev.Uprun[i]) + " "
 	}
 	for i := 0; i < N_FLOORS; i++ {
-		msg += strconv.FormatBool(elev.Downrun[i]) + " "
+		msg += strconv.Itoa(elev.Downrun[i]) + " "
 	}
 	msg += strconv.Itoa(elev.Current_floor) + " "
-	msg += strconv.Itoa(elev.Dir)
+	msg += strconv.Itoa(elev.Dir) + "\n"
 	return msg
 }
 
@@ -38,10 +38,10 @@ func DecodeElevatorStruct(msg string) ElevatorStruct {
 	var estruct ElevatorStruct
 	fields := strings.Fields(msg)
 	for i := 0; i < N_FLOORS; i++ {
-		estruct.Uprun[i], _ = strconv.ParseBool(fields[i])
+		estruct.Uprun[i], _ = strconv.Atoi(fields[i])
 	}
 	for i := 0; i < N_FLOORS; i++ {
-		estruct.Downrun[i], _ = strconv.ParseBool(fields[i+N_FLOORS])
+		estruct.Downrun[i], _ = strconv.Atoi(fields[i+N_FLOORS])
 	}
 	estruct.Current_floor, _ = strconv.Atoi(fields[2*N_FLOORS])
 	estruct.Dir, _ = strconv.Atoi(fields[2*N_FLOORS+1])
@@ -54,14 +54,15 @@ func EncodeElevatorMap(emap ElevatorMap) string {
 	for addr, elev := range(emap){
 	    msg += addr + " "
 	    for i := 0; i < N_FLOORS; i++ {
-		    msg += strconv.FormatBool(elev.Uprun[i]) + " "
+		    msg += strconv.Itoa(elev.Uprun[i]) + " "
 	    }
 	    for i := 0; i < N_FLOORS; i++ {
-		    msg += strconv.FormatBool(elev.Downrun[i]) + " "
+		    msg += strconv.Itoa(elev.Downrun[i]) + " "
 	    }
 	    msg += strconv.Itoa(elev.Current_floor) + " "
 	    msg += strconv.Itoa(elev.Dir) + " "
 	 }
+	 msg += "\n"
 	 return msg
 }
 
@@ -75,10 +76,10 @@ func DecodeElevatorMap(msg string) ElevatorMap {
 	    addr := fields[n*fields_per_elevator] 
 	    var estruct ElevatorStruct
 	    for i := 0; i < N_FLOORS; i++ {
-		    estruct.Uprun[i], _ = strconv.ParseBool(fields[n*fields_per_elevator + 1 + i])
+		    estruct.Uprun[i], _ = strconv.Atoi(fields[n*fields_per_elevator + 1 + i])
 	    }
 	    for i := 0; i < N_FLOORS; i++ {
-		    estruct.Downrun[i], _ = strconv.ParseBool(fields[n*fields_per_elevator + 1 + i + N_FLOORS])
+		    estruct.Downrun[i], _ = strconv.Atoi(fields[n*fields_per_elevator + 1 + i + N_FLOORS])
 	    }
 	    estruct.Current_floor, _ = strconv.Atoi(fields[n*fields_per_elevator + 1 + 2*N_FLOORS])
 	    estruct.Dir, _ = strconv.Atoi(fields[n*fields_per_elevator + 1 + 2*N_FLOORS + 1])

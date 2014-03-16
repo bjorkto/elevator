@@ -147,6 +147,11 @@ func HandleLostConnection(masterQueue int, msgChan chan Message, lostMasterChan 
 			masterQueue -= 1
 		} else if masterQueue == 0 {
 			fmt.Println("Something is very wrong... I cannot even connect to myself! I will keep trying to connect in the background...")
+			cmd := exec.Command("mate-terminal", "-x", "killall",  "Master")
+			err := cmd.Start()
+			if err != nil {
+				fmt.Println(err.Error())
+			}
 			masterQueue -= 1
 		} else if masterQueue > 1 {
 			masterQueue -= 1
@@ -170,7 +175,7 @@ func sendhandshake(conn *net.TCPConn) {
 	if (conn != nil) {
 		for {
 			time.Sleep(500 * time.Millisecond)
-			 , err := conn.Write([]byte("0Handshake"))
+			 _, err := conn.Write([]byte("0Handshake"))
 			if err != nil {
 				return
 			}
@@ -196,13 +201,17 @@ func ListenForMessages(conn *net.TCPConn, lostConnChan chan *net.TCPConn, msgCha
 			conn.Close()
 			return
 		}
-
-		//send message to the thread that handles it
-		var m Message
-		m.Sender = conn
-		m.Msg = string(buf[0:n])
-		msgChan <- m
-
+		
+		//if sending messages to fast, the buffer may conatin several messages. Split them!
+		str := string(buf[0:n])
+		messages := strings.SplitAfter(str, "\n")
+		for i := 0; i < len(messages)-1; i++ {
+			//send message to the thread that handles it
+			var m Message
+			m.Sender = conn
+			m.Msg = messages[i][0:len(messages[i])-1]
+			msgChan <- m
+		}
 	}
 }
 

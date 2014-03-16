@@ -14,12 +14,23 @@ const (
 	BUTTON_COMMAND   = 2
 	JOB_DONE         = 3
 	PASSED_FLOOR     = 4
-	DIRECTION_CHANGE = 5
+	DIRECTION_CHANGE_UP = 5
+	DIRECTION_CHANGE_DOWN = 6
+	DIRECTION_CHANGE_STOP = 7
+	TURN_ON_UP_LIGHT = 8
+	TURN_ON_DOWN_LIGHT = 9
+	TURN_OFF_LIGHTS = 10
+)
+
+//button types
+const (
+	CALL	= 1
+	COMMAND = 2
 )
 
 type ElevatorStruct struct {
-	Uprun         [N_FLOORS]bool
-	Downrun       [N_FLOORS]bool
+	Uprun         [N_FLOORS]int
+	Downrun       [N_FLOORS]int
 	Current_floor int
 	Dir           int
 	Conn          *net.TCPConn

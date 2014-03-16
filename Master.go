@@ -51,13 +51,29 @@ func handleMessages(msgChan chan Message) {
 			fmt.Println("Event at", m.Sender.RemoteAddr())
 			fmt.Println("Type:", e.EventType, "Floor:", e.Floor)
 
-			if e.EventType == BUTTON_COMMAND {
-				//Send directly back to sender
-				SendMessage(m.Sender, e)
-			} else {
+		    if e.EventType == BUTTON_CALL_UP || e.EventType == BUTTON_CALL_DOWN{
 				//Find most suitable elevator to handle the event
 				mostSuitable := findMostSuitable(e, emap)
-				SendMessage(mostSuitable, e)
+				if mostSuitable!=nil{
+					fmt.Println("Sending order to", mostSuitable.RemoteAddr())
+					SendMessage(mostSuitable, e)
+					//also tell all elevators to turn on the button light
+					for _, elevator := range(emap) {
+						if e.EventType == BUTTON_CALL_UP {
+							SendMessage(elevator.Conn, Event{TURN_ON_UP_LIGHT, e.Floor})
+						}else if e.EventType == BUTTON_CALL_DOWN {
+							SendMessage(elevator.Conn, Event{TURN_ON_DOWN_LIGHT, e.Floor})
+						}
+					}					
+				}else{
+					fmt.Println("SEND ORDER FAIL")
+				}
+			}
+			if (e.EventType == JOB_DONE){
+				//tell all elevators to turn off lights
+				for _, elevator := range(emap) {
+					SendMessage(elevator.Conn, Event{TURN_OFF_LIGHTS, e.Floor})
+				}
 			}
 			break
 		case 3:
@@ -68,7 +84,7 @@ func handleMessages(msgChan chan Message) {
 			addr := m.Sender.RemoteAddr().String()
 			addr = addr[0:strings.Index(addr, ":")]
 			emap[addr] = estruct
-			fmt.Println(emap[addr])
+			fmt.Println(addr, ": ", emap[addr])
 
 			//send a backup to all slaves
 			for _, elev := range emap {
@@ -107,36 +123,38 @@ func findMostSuitable(buttonEvent Event, emapCopy ElevatorMap) *net.TCPConn {
 
 	//examine every elevator in the elevator map too see which is the best
 	for _, elevator := range emapCopy {
-		//BUG HERE!!
-		if dir == elevator.Dir || elevator.Dir == 0 {
-			tempDist = int(Abs(float64(elevator.Current_floor - floor)))
-			if tempDist < bestDist || (tempDist == bestDist && elevator.Dir == 0) {
-				bestDist = tempDist
-				bestElev = elevator.Conn
-			}
-		} else {
-			if elevator.Dir == 1 {
-				for j := N_FLOORS - 1; j >= 0; j-- {
-					if elevator.Uprun[j] == true {
-						maxFloor = j
-						break
+			if (elevator.Uprun[floor] > 0 && dir == 1) || (elevator.Downrun[floor] > 0 && dir == -1) {
+				//ignore if an elevator already is heading to that floor
+				return nil
+			} 
+			if (dir == elevator.Dir && dir*elevator.Current_floor < dir*floor) || elevator.Dir == 0 {
+				tempDist = int(Abs(float64(elevator.Current_floor - floor)))
+				if tempDist < bestDist || (tempDist == bestDist && elevator.Dir == 0) {
+					bestDist = tempDist
+					bestElev = elevator.Conn
+				}
+			} else{
+				if elevator.Dir == 1{
+					for j := N_FLOORS - 1; j >= 0; j-- {
+						if elevator.Uprun[j] > 0 {
+							maxFloor = j
+							break
+						}
+					}
+				} else if elevator.Dir == -1 {
+					for j := 0; j < N_FLOORS; j++ {
+						if elevator.Downrun[j] > 0 {
+							maxFloor = j
+							break
+						}
 					}
 				}
-			} else {
-				for j := 0; j < N_FLOORS; j++ {
-					if elevator.Downrun[j] == true {
-						maxFloor = j
-						break
-					}
+				tempDist = int(Abs(float64(maxFloor - elevator.Current_floor)) + Abs(float64(maxFloor-floor)))
+				if tempDist < bestDist {
+					bestDist = tempDist
+					bestElev = elevator.Conn
 				}
-			}
-
-			tempDist = int(Abs(float64(elevator.Current_floor-floor)) + 2*Abs(float64(maxFloor-elevator.Current_floor)))
-			if tempDist < bestDist {
-				bestDist = tempDist
-				bestElev = elevator.Conn
-			}
-		}
+			} 		
 	}
 	return bestElev
 }
@@ -144,11 +162,11 @@ func findMostSuitable(buttonEvent Event, emapCopy ElevatorMap) *net.TCPConn {
 //Distribute the jobs of a lost elevator
 func DistributeJobs(elev ElevatorStruct) {
 	for i := 0; i < N_FLOORS; i++ {
-		if elev.Uprun[i] {
+		if elev.Uprun[i] == CALL {
 			DistributedJob := Event{BUTTON_CALL_UP, i}
 			SendMessage(findMostSuitable(DistributedJob, emap), DistributedJob)
 		}
-		if elev.Downrun[i] {
+		if elev.Downrun[i] == CALL {
 			DistributedJob := Event{BUTTON_CALL_DOWN, i}
 			SendMessage(findMostSuitable(DistributedJob, emap), DistributedJob)
 		}
@@ -202,7 +220,7 @@ func main() {
 			<-emapGuard
 			addr := newConn.RemoteAddr().String()
 			addr = addr[0:strings.Index(addr, ":")]
-			emap[addr] = ElevatorStruct{[4]bool{false, false, false, false}, [4]bool{false, false, false, false}, 0, 0, newConn}
+			emap[addr] = ElevatorStruct{[4]int{0,0,0,0}, [4]int{0,0,0,0}, 0, 0, newConn}
 			fmt.Println("Number of connections: ", len(emap))
 			idMsg := "1" + strconv.Itoa(len(emap))
 			emapGuard <- true

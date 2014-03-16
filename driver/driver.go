@@ -78,11 +78,9 @@ func Elev_init() (int, int){
        Set_button_lamp(BUTTON_COMMAND, i, 0);
     }
 
-    // Clear stop lamp, door open lamp, and set floor indicator to ground floor.
-    Set_stop_lamp(0);
+    // Clear stop lamp, door open lamp
     Set_door_open_lamp(0);
-    Set_floor_indicator(0);
-	
+    
 	 //find out which floor the elevator is at
 	 floor := 0
 	 for i := 0; i < N_FLOORS; i++{
@@ -90,7 +88,7 @@ func Elev_init() (int, int){
 			floor = i
 		}
 	 }
-	 
+	 Set_floor_indicator(floor);
 	 //stop motor
 	 Set_speed(0)
 	 

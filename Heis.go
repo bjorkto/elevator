@@ -9,6 +9,7 @@ import (
 	"net"
 	"strconv"
 	. "time"
+	 "io/ioutil"
 )
 
 /*
@@ -21,8 +22,8 @@ import (
 //(only one thread will ever have write access)
 
 var elev = ElevatorStruct{
-	[4]bool{false, false, false, false},
-	[4]bool{false, false, false, false},
+	[4]int{0,0,0,0},
+	[4]int{0,0,0,0},
 	0,
 	0,
 	nil,
@@ -41,44 +42,72 @@ var backup = make(ElevatorMap)
 
 //Receives events through a channel and updates the elevator structure accordingly
 
-func handleJobArrays(eventChan chan Event, updateMasterChan chan bool) {
+func handleJobArrays(eventChan chan Event, updateMasterChan chan bool, jobDoneChan chan Event) {
 	for {
 
 		//wait for an event
 		event := <-eventChan
-
-		//update the correct array depending on event type
-		if event.EventType == BUTTON_CALL_DOWN {
-			elev.Downrun[event.Floor] = true
-		} else if event.EventType == BUTTON_CALL_UP {
-			elev.Uprun[event.Floor] = true
-		} else if event.EventType == BUTTON_COMMAND {
-			if event.Floor < elev.Current_floor {
-				elev.Downrun[event.Floor] = true
-			} else if event.Floor > elev.Current_floor {
-				elev.Uprun[event.Floor] = true
+		if (event.Floor >= 0 && event.Floor < N_FLOORS) {
+			//update the correct array depending on event type
+			switch event.EventType {
+				case (BUTTON_CALL_DOWN):
+					elev.Downrun[event.Floor] = CALL
+					break
+				case (BUTTON_CALL_UP):
+					elev.Uprun[event.Floor] = CALL
+					break
+				case (BUTTON_COMMAND):
+					if event.Floor < elev.Current_floor {
+						elev.Downrun[event.Floor] = COMMAND
+					} else if event.Floor >= elev.Current_floor {
+						elev.Uprun[event.Floor] = COMMAND
+					}
+					//lagre til fil
+					ioutil.WriteFile("localBU.txt", []byte(EncodeElevatorStruct(elev)), 0644) 
+					break
+				case JOB_DONE:
+					elev.Uprun[event.Floor] = 0
+					elev.Downrun[event.Floor] = 0
+					Set_button_lamp(BUTTON_CALL_DOWN, event.Floor, 0)
+					Set_button_lamp(BUTTON_CALL_UP, event.Floor, 0)
+					Set_button_lamp(BUTTON_COMMAND, event.Floor, 0)
+					ioutil.WriteFile("localBU.txt", []byte(EncodeElevatorStruct(elev)), 0644) 
+					jobDoneChan <- event
+					break
+				case PASSED_FLOOR:
+					elev.Current_floor = event.Floor
+					Set_floor_indicator(event.Floor)
+					break
+				case DIRECTION_CHANGE_UP:
+					elev.Dir = 1
+					break
+				case DIRECTION_CHANGE_DOWN:
+					elev.Dir = -1
+					break
+				case DIRECTION_CHANGE_STOP:
+					elev.Dir = 0
+					break
+				case TURN_ON_UP_LIGHT:
+					Set_button_lamp(BUTTON_CALL_UP, event.Floor, 1)
+					break
+				case TURN_ON_DOWN_LIGHT:
+					Set_button_lamp(BUTTON_CALL_DOWN, event.Floor, 1)
+					break
+				case TURN_OFF_LIGHTS:
+					Set_button_lamp(BUTTON_CALL_DOWN, event.Floor, 0)
+					Set_button_lamp(BUTTON_CALL_UP, event.Floor, 0)
+					break
 			}
-		} else if event.EventType == JOB_DONE {
-			elev.Uprun[event.Floor] = false
-			elev.Downrun[event.Floor] = false
-			Set_button_lamp(BUTTON_CALL_DOWN, event.Floor, 0)
-			Set_button_lamp(BUTTON_CALL_UP, event.Floor, 0)
-			Set_button_lamp(BUTTON_COMMAND, event.Floor, 0)
-		} else if event.EventType == PASSED_FLOOR {
-			elev.Current_floor = event.Floor
-			Set_floor_indicator(event.Floor)
-		} else if event.EventType == DIRECTION_CHANGE {
-			elev.Dir = event.Floor //Not really a floor. It's actually the direction
+			updateMasterChan <- true
+			<- updateMasterChan
 		}
-
-		updateMasterChan <- true
 	}
 }
 
 //Scans the joblist between lower_floor and upper_floor and returns true if there is a job
-func isJobs(joblist [4]bool, lower_floor int, upper_floor int) (bool, int) {
+func isJobs(joblist [4]int, lower_floor int, upper_floor int) (bool, int) {
 	for i := lower_floor; i < upper_floor; i++ {
-		if joblist[i] {
+		if joblist[i] > 0 {
 			return true, i
 		}
 	}
@@ -113,14 +142,16 @@ func elevator(eventChan chan Event) {
 		}
 
 		if !up && !down && elev.Dir != 0 {
-			eventChan <- Event{DIRECTION_CHANGE, 0}
+			eventChan <- Event{DIRECTION_CHANGE_STOP, 0}
+			Set_door_open_lamp(1)
 		}
 
 		//While going up:
 		for up {
 
 			if elev.Dir != 1 {
-				eventChan <- Event{DIRECTION_CHANGE, 1}
+				eventChan <- Event{DIRECTION_CHANGE_UP, 0}
+				Set_door_open_lamp(0)
 			}
 
 			//full speed ahead
@@ -129,12 +160,14 @@ func elevator(eventChan chan Event) {
 			//Keep polling the sensors until job is completed
 			complete := false
 			for !complete {
-				for i := elev.Current_floor + 1; i < N_FLOORS; i++ {
+				for i := elev.Current_floor; i < N_FLOORS; i++ {
 					Sleep(1 * Millisecond)
-					if Io_read_bit(Sensor[i]) == 1 {
+					if Io_read_bit(Sensor[i]) == 1{
 						//update current floor when passing a sensor
-						eventChan <- Event{PASSED_FLOOR, i}
-						if i == N_FLOORS-1 || elev.Uprun[i] {
+						if i != elev.Current_floor {
+							eventChan <- Event{PASSED_FLOOR, i}
+						}
+						if i == N_FLOORS-1 || elev.Uprun[i] > 0 {
 							//stop if there is a job or we are at the top floor
 							complete = true
 							break
@@ -145,10 +178,13 @@ func elevator(eventChan chan Event) {
 
 			//stop!!!
 			Set_speed(0)
+			
 
 			//signal that the job is complete
 			eventChan <- Event{JOB_DONE, elev.Current_floor}
+			Set_door_open_lamp(1)
 			Sleep(2 * Second)
+			Set_door_open_lamp(0)
 
 			//Is there still more upgoing jobs above?
 			up, _ = isJobs(elev.Uprun, elev.Current_floor+1, N_FLOORS)
@@ -158,7 +194,8 @@ func elevator(eventChan chan Event) {
 		for down {
 
 			if elev.Dir != -1 {
-				eventChan <- Event{DIRECTION_CHANGE, -1}
+				eventChan <- Event{DIRECTION_CHANGE_DOWN, 0}
+				Set_door_open_lamp(0)
 			}
 
 			//Full speed ahead!
@@ -167,12 +204,14 @@ func elevator(eventChan chan Event) {
 			//Keep polling the sensors until job is completed
 			complete := false
 			for !complete {
-				for i := 0; i < elev.Current_floor; i++ {
+				for i := 0; i <= elev.Current_floor; i++ {
 					Sleep(1 * Millisecond)
 					if Io_read_bit(Sensor[i]) == 1 {
 						//update current floor when passing a sensor
-						eventChan <- Event{PASSED_FLOOR, i}
-						if i == 0 || elev.Downrun[i] {
+						if i != elev.Current_floor {
+							eventChan <- Event{PASSED_FLOOR, i}
+						}
+						if i == 0 || elev.Downrun[i] > 0 {
 							//stop if there is a job or we are at the bottom floor
 							complete = true
 							break
@@ -186,10 +225,13 @@ func elevator(eventChan chan Event) {
 
 			//signal that the job is done
 			eventChan <- Event{JOB_DONE, elev.Current_floor}
+			
+			Set_door_open_lamp(1)
 			Sleep(2 * Second)
+			Set_door_open_lamp(0)
 
 			//Are there still more downgoing jobs below?
-			down, _ = isJobs(elev.Downrun, 0, elev.Current_floor-1)
+			down, _ = isJobs(elev.Downrun, 0, elev.Current_floor)
 
 		}
 		//Let the cycle begin again
@@ -202,10 +244,10 @@ func lookForLocalEvents(newEventChan chan Event) {
 		event := Poll_buttons()
 		//make sure event is of right type and not occuring at the current floor
 		if event.EventType >= 0 && event.EventType < 3 && Io_read_bit(Sensor[event.Floor]) == 0 {
-			if !(event.Floor == elev.Current_floor && event.EventType == BUTTON_COMMAND) {
+			if (event.EventType == BUTTON_COMMAND) {
 				Set_button_lamp(event.EventType, event.Floor, 1)
-				newEventChan <- event
 			}
+			newEventChan <- event
 		}
 		Sleep(10 * Millisecond)
 	}
@@ -228,7 +270,11 @@ func handleMasterMessage(msgChan chan Message, handleEventChan chan Event) {
 			break
 		case 2:
 			//Event (Job order)
-			handleEventChan <- DecodeEvent(m.Msg[1:])
+			e := DecodeEvent(m.Msg[1:])
+			fmt.Println("Received order, type", e.EventType, "at floor", e.Floor)
+			if (Io_read_bit(e.Floor) == 0){
+				handleEventChan <- e
+			}
 			break
 		case 4:
 			//backup of the masters elevator map
@@ -240,6 +286,30 @@ func handleMasterMessage(msgChan chan Message, handleEventChan chan Event) {
 
 func main() {
 
+	//Read backup file
+	bs, err := ioutil.ReadFile("localBU.txt")
+	if err == nil{
+		fmt.Println("Reading backup: ")
+		temp := DecodeElevatorStruct(string(bs[1:]))
+		for i := 0; i < N_FLOORS; i++ {
+			if temp.Uprun[i] == COMMAND {
+				elev.Uprun[i] = COMMAND
+			}
+			if temp.Downrun[i] == COMMAND {
+				elev.Downrun[i] = COMMAND
+			}		
+		}
+		fmt.Println(elev)
+	}
+	
+	//Initialize the elevator and print status
+	success, floor := Elev_init()
+	if success != 1 {
+		fmt.Println("Could not initialize elevator. Exiting...")
+		return
+	}
+	elev.Current_floor = floor
+	
 	//Try to find master
 	exists, address := SearchForMaster(":10001")
 
@@ -262,26 +332,20 @@ func main() {
 		//if no connection can be made, somehting is wrong with the network. Start the program in non network mode instead
 		fmt.Println("Could not connect to master. Starting program in non network mode")
 		NetworkMode = false
+		go HandleLostConnection(-1, msgChan, lostMasterChan, newMasterChan)
+	}else{
+		//send info about self to master
+		SendMessage(conn, elev)
 	}
-
-	//Initialize the elevator and print status
-	success, floor := Elev_init()
-	if success != 1 {
-		fmt.Println("Could not initialize elevator. Exiting...")
-		return
-	}
-
-	//send info about self to master
-	elev.Current_floor = floor
-	SendMessage(conn, elev)
-
+	
 	//create channels to send events between threads
 	localEventChan := make(chan Event)
 	handleEventChan := make(chan Event)
 	updateMasterChan := make(chan bool)
+	jobDoneChan := make(chan Event)
 
 	//start threads that control the elevator
-	go handleJobArrays(handleEventChan, updateMasterChan)
+	go handleJobArrays(handleEventChan, updateMasterChan, jobDoneChan)
 	go elevator(handleEventChan)
 
 	//start threads that look for local events and handles messages from the master
@@ -301,11 +365,17 @@ func main() {
 				SendMessage(conn, event)
 			}
 			break
+		case event := <- jobDoneChan:
+			if NetworkMode && event.EventType == JOB_DONE{
+				SendMessage(conn, event)
+			}
+			break
 		case <-updateMasterChan:
 			//send updated info about the elevator to the master
 			if NetworkMode {
 				SendMessage(conn, elev)
 			}
+			updateMasterChan <- true
 			break
 		case <-lostMasterChan:
 			//lost connection with master. Try to resolve
