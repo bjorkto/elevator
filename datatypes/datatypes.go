@@ -20,6 +20,7 @@ const (
 	TURN_ON_UP_LIGHT = 8
 	TURN_ON_DOWN_LIGHT = 9
 	TURN_OFF_LIGHTS = 10
+	JOB_REQUEST = 11
 )
 
 //button types
