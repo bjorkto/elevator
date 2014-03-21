@@ -4,7 +4,7 @@ const(
 	//in port 4
 	 PORT4          =	3
 	 OBSTRUCTION    =	(0x300+23)
-	 STOP           =	(0x300+22)
+	 STOP_BUTTON    =	(0x300+22)
 	 FLOOR_COMMAND1 =	(0x300+21)
 	 FLOOR_COMMAND2 =	(0x300+20)
 	 FLOOR_COMMAND3 =	(0x300+19)

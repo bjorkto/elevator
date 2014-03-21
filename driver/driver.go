@@ -82,7 +82,7 @@ func Elev_init() (int, int){
     Set_door_open_lamp(0);
     
 	 //find out which floor the elevator is at
-	 floor := 0
+	 floor := -1
 	 for i := 0; i < N_FLOORS; i++{
 	 	if (Io_read_bit(Sensor[i]) == 1){
 			floor = i

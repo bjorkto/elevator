@@ -1,3 +1,5 @@
+/*This is the network module. It contains the network commucation functionality*/
+
 package network
 
 import (
@@ -11,7 +13,7 @@ import (
 	"time"
 )
 
-var NetworkMode = bool(true)
+
 
 /*
 -------------------------------------------
@@ -64,7 +66,7 @@ func StartTCPServer(port string, newconnChan chan *net.TCPConn, lostConnChan cha
 
 /*
 -------------------------------------------
---------- Client functionallity -----------
+---------- Slave functionallity -----------
 -------------------------------------------
 */
 
@@ -116,12 +118,12 @@ func ConnectToMaster(masterAddr string, msgChan chan Message, lostMasterChan cha
 	if err != nil {
 		return nil
 	}
-	fmt.Println("Connection established!")
-
+	
 	//start threads that reads messages from master and sends handshakes
-	go sendhandshake(conn)
 	go ListenForMessages(conn, lostMasterChan, msgChan)
-
+	go sendhandshake(conn)
+	
+	fmt.Println("Connection established!")
 	return conn
 }
 
@@ -219,6 +221,14 @@ func ListenForMessages(conn *net.TCPConn, lostConnChan chan *net.TCPConn, msgCha
 //data can theoretically be of any type, find out wich by using switch on the type
 func SendMessage(conn *net.TCPConn, data interface{}) {
 	switch data.(type) {
+	case int:
+		//data is a queue number
+		data := data.(int)
+		msg := EncodeQueue(data)
+		if (conn != nil) {
+	        conn.Write([]byte(msg))
+        }
+		break
 	case Event:
 		//data is a button event
 		data := data.(Event)
@@ -227,7 +237,6 @@ func SendMessage(conn *net.TCPConn, data interface{}) {
 	        conn.Write([]byte(msg))
         }
 		break
-
 	case ElevatorStruct:
 		//data is an elevatorStruct
 		data := data.(ElevatorStruct)

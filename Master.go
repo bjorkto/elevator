@@ -1,3 +1,6 @@
+/*This is the code for the network master. It will be started from an elevator if it is not already started. 
+The master receives events from its slave elevators and distributes the assosiated jobs*/
+
 package main
 
 import (
@@ -42,11 +45,10 @@ func handleMessages(msgChan chan Message) {
 		//first bit is an id telling us what type of message it is
 		msgType, _ := strconv.Atoi(string(m.Msg[0]))
 		switch msgType {
-		case 0:
-			//type 0 is only a handshake. Nothing to handle.
+		case HANDSHAKE:
+			//Nothing to handle.
 			break
-		case 2:
-			//Event
+		case EVENT:
 			e := DecodeEvent(m.Msg[1:])
 			fmt.Println("Event at", m.Sender.RemoteAddr())
 			fmt.Println("Type:", e.EventType, "Floor:", e.Floor)
@@ -76,7 +78,7 @@ func handleMessages(msgChan chan Message) {
 				}
 			}
 			break
-		case 3:
+		case ELEV_INFO:
 			//updated information about a single elevator
 			<-emapGuard
 			estruct := DecodeElevatorStruct(m.Msg[1:])
@@ -92,7 +94,7 @@ func handleMessages(msgChan chan Message) {
 			}
 			emapGuard <- true
 			break
-		case 4:
+		case BACKUP:
 			//Bakcup from the previous master
 			if !receivedBackup {
 				backup = DecodeElevatorMap(m.Msg[1:])
@@ -106,12 +108,12 @@ func handleMessages(msgChan chan Message) {
 //Find the most suitable elevator for a event
 func findMostSuitable(buttonEvent Event, emapCopy ElevatorMap) *net.TCPConn {
 
-	floor := buttonEvent.Floor
+	EventFloor := buttonEvent.Floor
 	dir := 0
 	if buttonEvent.EventType == BUTTON_CALL_UP {
-		dir = 1
+		dir = UP
 	} else if buttonEvent.EventType == BUTTON_CALL_DOWN {
-		dir = -1
+		dir = DOWN
 	} else {
 		return nil
 	}
@@ -123,25 +125,27 @@ func findMostSuitable(buttonEvent Event, emapCopy ElevatorMap) *net.TCPConn {
 
 	//examine every elevator in the elevator map too see which is the best
 	for _, elevator := range emapCopy {
-			if (elevator.Uprun[floor] > 0 && dir == 1) || (elevator.Downrun[floor] > 0 && dir == -1) {
+			if (elevator.Uprun[EventFloor] > 0 && dir == UP) || (elevator.Downrun[EventFloor] > 0 && dir == DOWN) {
 				//ignore if an elevator already is heading to that floor
 				return nil
 			} 
-			if (dir == elevator.Dir && dir*elevator.Current_floor < dir*floor) || elevator.Dir == 0 {
-				tempDist = int(Abs(float64(elevator.Current_floor - floor)))
-				if tempDist < bestDist || (tempDist == bestDist && elevator.Dir == 0) {
+			if (dir == elevator.Dir && dir*elevator.Current_floor < dir*EventFloor) || elevator.Dir == STOP {
+				//Returns the distance between current floor and eventfloor if the elevator is going towards the eventfloor
+				tempDist = int(Abs(float64(elevator.Current_floor - EventFloor)))
+				if tempDist < bestDist || (tempDist == bestDist && elevator.Dir == STOP) {
+					//choose this as best elevator if the elevator is in the least distance to the eventfloor, and prioritizes inactive elevators
 					bestDist = tempDist
 					bestElev = elevator.Conn
 				}
-			} else{
-				if elevator.Dir == 1{
+			} else{ //If the elevator is going the wrong way, calculate the distance
+				if elevator.Dir == UP{
 					for j := N_FLOORS - 1; j >= 0; j-- {
 						if elevator.Uprun[j] > 0 {
 							maxFloor = j
 							break
 						}
 					}
-				} else if elevator.Dir == -1 {
+				} else if elevator.Dir == DOWN {
 					for j := 0; j < N_FLOORS; j++ {
 						if elevator.Downrun[j] > 0 {
 							maxFloor = j
@@ -149,7 +153,7 @@ func findMostSuitable(buttonEvent Event, emapCopy ElevatorMap) *net.TCPConn {
 						}
 					}
 				}
-				tempDist = int(Abs(float64(maxFloor - elevator.Current_floor)) + Abs(float64(maxFloor-floor)))
+				tempDist = int(Abs(float64(maxFloor - elevator.Current_floor)) + Abs(float64(maxFloor-EventFloor)))
 				if tempDist < bestDist {
 					bestDist = tempDist
 					bestElev = elevator.Conn
@@ -163,6 +167,7 @@ func findMostSuitable(buttonEvent Event, emapCopy ElevatorMap) *net.TCPConn {
 func DistributeJobs(elev ElevatorStruct) {
 	for i := 0; i < N_FLOORS; i++ {
 		if elev.Uprun[i] == CALL {
+			//only distribute CALL jobs
 			DistributedJob := Event{BUTTON_CALL_UP, i}
 			SendMessage(findMostSuitable(DistributedJob, emap), DistributedJob)
 		}
@@ -171,6 +176,15 @@ func DistributeJobs(elev ElevatorStruct) {
 			SendMessage(findMostSuitable(DistributedJob, emap), DistributedJob)
 		}
 	}
+}
+
+//Send new queue numbers to the elevators
+func RemakeQueue(){
+	i := 1
+    for  _, elev := range(emap){
+        SendMessage(elev.Conn, i)
+        i += 1
+    }
 }
 
 //In case this master process has been created because the previous master died, the slaves will send
@@ -194,7 +208,11 @@ func checkForBackup() {
 func main() {
 	//unlock the mutex
 	emapGuard <- true
-
+	
+	//Flag and variable for backup if all elevators are lost
+	DistributeBU := false
+	BUelev := ElevatorStruct{}
+	
 	//channels to communicate with network module
 	newconnChan := make(chan *net.TCPConn)
 	lostConnChan := make(chan *net.TCPConn)
@@ -222,9 +240,13 @@ func main() {
 			addr = addr[0:strings.Index(addr, ":")]
 			emap[addr] = ElevatorStruct{[4]int{0,0,0,0}, [4]int{0,0,0,0}, 0, 0, newConn}
 			fmt.Println("Number of connections: ", len(emap))
-			idMsg := "1" + strconv.Itoa(len(emap))
+			SendMessage(newConn, len(emap))
+			if DistributeBU{
+				DistributeJobs(BUelev)
+				DistributeBU = false
+				fmt.Println("BU sent: ", BUelev)
+			}
 			emapGuard <- true
-			newConn.Write([]byte(idMsg))
 			break
 		//for each lost connection, distribute that elevators jobs and delete entry in elevatormap
 		case lostConn := <-lostConnChan:
@@ -234,7 +256,13 @@ func main() {
 			elev := emap[addr]
 			delete(emap, addr)
 			fmt.Println("Number of connections: ", len(emap))
-			DistributeJobs(elev)
+			if len(emap) == 0 {
+				DistributeBU = true
+				BUelev = elev
+			}else{
+				DistributeJobs(elev)
+				RemakeQueue()
+			}
 			emapGuard <- true
 			break
 		}

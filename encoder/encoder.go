@@ -1,6 +1,6 @@
-package encoder
+/*This package contains function for encoding/decoding the messages that are sent over the network*/
 
-//This package contains function for encoding/decoding the messages that are sent over the network
+package encoder
 
 import (
 	. "../datatypes"
@@ -8,8 +8,12 @@ import (
 	"strings"
 )
 
+func EncodeQueue(nr int) string{
+	return strconv.Itoa(QUEUENUMBER) + strconv.Itoa(nr) + "\n"
+}
+
 func EncodeEvent(e Event) string {
-	msg := "2" + strconv.Itoa(e.EventType) + " " + strconv.Itoa(e.Floor) + "\n"
+	msg := strconv.Itoa(EVENT) + strconv.Itoa(e.EventType) + " " + strconv.Itoa(e.Floor) + "\n"
 	return msg
 }
 
@@ -22,7 +26,7 @@ func DecodeEvent(msg string) Event {
 }
 
 func EncodeElevatorStruct(elev ElevatorStruct) string {
-	msg := "3"
+	msg := strconv.Itoa(ELEV_INFO)
 	for i := 0; i < N_FLOORS; i++ {
 		msg += strconv.Itoa(elev.Uprun[i]) + " "
 	}
@@ -50,7 +54,7 @@ func DecodeElevatorStruct(msg string) ElevatorStruct {
 }
 
 func EncodeElevatorMap(emap ElevatorMap) string {
-	msg := "4"
+	msg := strconv.Itoa(BACKUP)
 	for addr, elev := range(emap){
 	    msg += addr + " "
 	    for i := 0; i < N_FLOORS; i++ {
