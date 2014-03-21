@@ -41,7 +41,7 @@ var backup = make(ElevatorMap)
 */
 
 //Receives events through a channel and makes appropriate actions
-func handleEvents(eventChan chan Event, updateMasterChan chan bool, jobDoneChan chan Event) {
+func handleEvents(eventChan chan Event, updateMasterChan chan bool, jobDoneChan chan Event, , startChan chan int, stopChan chan bool) {
 	for {
 
 		//wait for an event
@@ -57,6 +57,7 @@ func handleEvents(eventChan chan Event, updateMasterChan chan bool, jobDoneChan 
 					//if this is the only job:
 					_, dir = findNextJob()
 					startChan <- dir
+					elev.Dir = dir
 				}
 				break
 			case BUTTON_CALL_UP:
@@ -65,6 +66,7 @@ func handleEvents(eventChan chan Event, updateMasterChan chan bool, jobDoneChan 
 					//if this is the only job:
 					_, dir = findNextJob()
 					startChan <- dir
+					elev.Dir = dir
 				}
 				break
 			case BUTTON_COMMAND:
@@ -77,6 +79,7 @@ func handleEvents(eventChan chan Event, updateMasterChan chan bool, jobDoneChan 
 					//if this is the only job:
 					_, dir = findNextJob()
 					startChan <- dir
+					elev.Dir = dir
 				}
 				//write backup to file
 				ioutil.WriteFile("localBU.txt", []byte(EncodeElevatorStruct(elev)), 0644)
@@ -101,11 +104,9 @@ func handleEvents(eventChan chan Event, updateMasterChan chan bool, jobDoneChan 
 			case JOB_REQUEST:
 				//elevator is ready for a new job, so give a new order!
 				job, dir := findNextJob()
+				elev.Dir = dir
 				if job {
-					elev.Dir = dir
 					startChan <- dir
-				} else {
-					elev.Dir = 0
 				}
 				break
 
@@ -130,7 +131,7 @@ func handleEvents(eventChan chan Event, updateMasterChan chan bool, jobDoneChan 
 }
 
 //Controls the movement of the elevator
-func elevator(eventChan chan Event) {
+func elevator(eventChan chan Event, startChan chan int, stopChan chan bool) {
 	floor := 0
 	eventChan <- Event{JOB_REQUEST, 0}
 	
@@ -150,6 +151,7 @@ func elevator(eventChan chan Event) {
 				complete = true
 				set_speed(0)
 				Set_door_open_lamp(1)
+				break
 			default:
 				//while moving, keep polling the sensors and send PASSED_FLOOR events when passing floors
 				for i := 0; i < N_FLOORS; i++ {
@@ -335,7 +337,7 @@ func main() {
 	handleEventChan := make(chan Event)
 	updateMasterChan := make(chan bool)
 	jobDoneChan := make(chan Event)
-	startChan := make(chan bool)
+	startChan := make(chan int)
 	stopChan := make(chan bool)
 
 	//start threads that control the elevator
