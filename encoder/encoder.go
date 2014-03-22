@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-func EncodeQueue(nr int) string{
+func EncodeQueue(nr int) string {
 	return strconv.Itoa(QUEUENUMBER) + strconv.Itoa(nr) + "\n"
 }
 
@@ -55,40 +55,40 @@ func DecodeElevatorStruct(msg string) ElevatorStruct {
 
 func EncodeElevatorMap(emap ElevatorMap) string {
 	msg := strconv.Itoa(BACKUP)
-	for addr, elev := range(emap){
-	    msg += addr + " "
-	    for i := 0; i < N_FLOORS; i++ {
-		    msg += strconv.Itoa(elev.Uprun[i]) + " "
-	    }
-	    for i := 0; i < N_FLOORS; i++ {
-		    msg += strconv.Itoa(elev.Downrun[i]) + " "
-	    }
-	    msg += strconv.Itoa(elev.Current_floor) + " "
-	    msg += strconv.Itoa(elev.Dir) + " "
-	 }
-	 msg += "\n"
-	 return msg
+	for addr, elev := range emap {
+		msg += addr + " "
+		for i := 0; i < N_FLOORS; i++ {
+			msg += strconv.Itoa(elev.Uprun[i]) + " "
+		}
+		for i := 0; i < N_FLOORS; i++ {
+			msg += strconv.Itoa(elev.Downrun[i]) + " "
+		}
+		msg += strconv.Itoa(elev.Current_floor) + " "
+		msg += strconv.Itoa(elev.Dir) + " "
+	}
+	msg += "\n"
+	return msg
 }
 
 func DecodeElevatorMap(msg string) ElevatorMap {
 	var emap = make(ElevatorMap)
 	fields := strings.Fields(msg)
-	fields_per_elevator := (3+2*N_FLOORS)
-	number_of_elevators := len(fields)/fields_per_elevator
-	
+	fields_per_elevator := (3 + 2*N_FLOORS)
+	number_of_elevators := len(fields) / fields_per_elevator
+
 	for n := 0; n < number_of_elevators; n++ {
-	    addr := fields[n*fields_per_elevator] 
-	    var estruct ElevatorStruct
-	    for i := 0; i < N_FLOORS; i++ {
-		    estruct.Uprun[i], _ = strconv.Atoi(fields[n*fields_per_elevator + 1 + i])
-	    }
-	    for i := 0; i < N_FLOORS; i++ {
-		    estruct.Downrun[i], _ = strconv.Atoi(fields[n*fields_per_elevator + 1 + i + N_FLOORS])
-	    }
-	    estruct.Current_floor, _ = strconv.Atoi(fields[n*fields_per_elevator + 1 + 2*N_FLOORS])
-	    estruct.Dir, _ = strconv.Atoi(fields[n*fields_per_elevator + 1 + 2*N_FLOORS + 1])
-	    estruct.Conn = nil
-        emap[addr] = estruct
-    }          	    
+		addr := fields[n*fields_per_elevator]
+		var estruct ElevatorStruct
+		for i := 0; i < N_FLOORS; i++ {
+			estruct.Uprun[i], _ = strconv.Atoi(fields[n*fields_per_elevator+1+i])
+		}
+		for i := 0; i < N_FLOORS; i++ {
+			estruct.Downrun[i], _ = strconv.Atoi(fields[n*fields_per_elevator+1+i+N_FLOORS])
+		}
+		estruct.Current_floor, _ = strconv.Atoi(fields[n*fields_per_elevator+1+2*N_FLOORS])
+		estruct.Dir, _ = strconv.Atoi(fields[n*fields_per_elevator+1+2*N_FLOORS+1])
+		estruct.Conn = nil
+		emap[addr] = estruct
+	}
 	return emap
 }

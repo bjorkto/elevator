@@ -1,4 +1,4 @@
-/*This is the main code for controlling the elevator. Each elevator is a slave to a master, 
+/*This is the main code for controlling the elevator. Each elevator is a slave to a master,
 as long as there is a network connection. */
 
 package main
@@ -56,15 +56,17 @@ func handleEvents(eventChan chan Event, updateMasterChan chan bool, jobDoneChan 
 			//Received new jobs, update the correct job list
 			case BUTTON_CALL_DOWN:
 				elev.Downrun[event.Floor] = CALL
+				Set_button_lamp(BUTTON_CALL_DOWN, event.Floor, 1)
 				if elev.Dir == STOP {
 					//if this is the only job:
 					_, dir := findNextJob()
-					           fmt.Println(dir);
+					fmt.Println(dir)
 					startChan <- dir
 					elev.Dir = dir
 				}
 				break
 			case BUTTON_CALL_UP:
+				Set_button_lamp(BUTTON_CALL_UP, event.Floor, 1)
 				elev.Uprun[event.Floor] = CALL
 				if elev.Dir == STOP {
 					//if this is the only job:
@@ -136,9 +138,9 @@ func handleEvents(eventChan chan Event, updateMasterChan chan bool, jobDoneChan 
 
 //Controls the movement of the elevator
 func elevator(eventChan chan Event, startChan chan int, stopChan chan bool) {
-	floor := 0
+	floor := -1
 	eventChan <- Event{JOB_REQUEST, 0}
-	
+
 	for {
 		//wait until there is something to do
 		dir := <-startChan
@@ -147,12 +149,12 @@ func elevator(eventChan chan Event, startChan chan int, stopChan chan bool) {
 		Set_door_open_lamp(0)
 		Set_speed(dir * 100)
 
-		complete := false
-		for !complete {
+		stopped := false
+		for !stopped {
 			select {
 			//keep moving until receiving a stop signal
 			case <-stopChan:
-				complete = true
+				stopped = true
 				Set_speed(STOP)
 				Set_door_open_lamp(1)
 				break
@@ -188,17 +190,17 @@ func findNextJob() (bool, int) {
 			up_max = i
 		}
 		if elev.Uprun[N_FLOORS-1-i] > 0 {
-			up_min = N_FLOORS-1-i
+			up_min = N_FLOORS - 1 - i
 		}
 		if elev.Downrun[i] > 0 {
 			down_max = i
 		}
 		if elev.Downrun[N_FLOORS-1-i] > 0 {
-			down_min = N_FLOORS-1-i
+			down_min = N_FLOORS - 1 - i
 		}
 	}
 
-	if elev.Dir == UP || elev.Dir == STOP{
+	if elev.Dir == UP || elev.Dir == STOP {
 		//if elevator is moving upwards, prioritise upgoing jobs above the current position
 		if up_max > elev.Current_floor {
 			return true, UP
@@ -217,8 +219,8 @@ func findNextJob() (bool, int) {
 		if up_min < elev.Current_floor && up_min >= 0 {
 			elev.Downrun[up_min] = COMMAND
 			return true, DOWN
-		} 
-	} else if elev.Dir == DOWN{
+		}
+	} else if elev.Dir == DOWN {
 		//if elevator is moving downwards, prioritise downgoin jobs below the current position
 		if down_min < elev.Current_floor && down_min >= 0 {
 			return true, DOWN
@@ -276,7 +278,7 @@ func handleMasterMessage(msgChan chan Message, handleEventChan chan Event, jobDo
 			fmt.Println("Received order, type", e.EventType, "at floor", e.Floor)
 			if Io_read_bit(Sensor[e.Floor]) == 0 || (e.EventType == TURN_OFF_LIGHTS) {
 				handleEventChan <- e
-			}else if (e.EventType >= 0 && e.EventType < 2){
+			} else if e.EventType >= 0 && e.EventType < 2 {
 				//ignore the order if the elevator already is at that floor. Signal that the job is done.
 				jobDoneChan <- Event{JOB_DONE, e.Floor}
 			}
@@ -292,23 +294,7 @@ func handleMasterMessage(msgChan chan Message, handleEventChan chan Event, jobDo
 func main() {
 	//network status flag
 	var NetworkMode = bool(true)
-
-	//Read backup file
-	bs, err := ioutil.ReadFile("localBU.txt")
-	if err == nil {
-		fmt.Println("Reading backup: ")
-		temp := DecodeElevatorStruct(string(bs[1:]))
-		for i := 0; i < N_FLOORS; i++ {
-			if temp.Uprun[i] == COMMAND {
-				elev.Uprun[i] = COMMAND
-			}
-			if temp.Downrun[i] == COMMAND {
-				elev.Downrun[i] = COMMAND
-			}
-		}
-		fmt.Println(elev)
-	}
-
+	
 	//Initialize the elevator and print status
 	success, floor := Elev_init()
 	if success != 1 {
@@ -318,6 +304,24 @@ func main() {
 	fmt.Println("Elevator initialised!")
 	elev.Current_floor = floor
 	
+	//Read backup file
+	bs, err := ioutil.ReadFile("localBU.txt")
+	if err == nil {
+		fmt.Println("Reading backup: ")
+		temp := DecodeElevatorStruct(string(bs[1:]))
+		for i := 0; i < N_FLOORS; i++ {
+			if temp.Uprun[i] == COMMAND {
+				elev.Uprun[i] = COMMAND
+				Set_button_lamp(BUTTON_COMMAND, i, 1)
+			}
+			if temp.Downrun[i] == COMMAND {
+				elev.Downrun[i] = COMMAND
+				Set_button_lamp(BUTTON_COMMAND, i, 1)
+			}
+		}
+		fmt.Println(elev)
+	}
+
 	//Try to find master
 	fmt.Println("Searching for master...")
 	exists, address := SearchForMaster(":10001")

@@ -11,9 +11,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+	"strconv"
 )
-
-
 
 /*
 -------------------------------------------
@@ -60,7 +59,7 @@ func StartTCPServer(port string, newconnChan chan *net.TCPConn, lostConnChan cha
 
 		//spawn go-routines that reads messages from the client and sends handshakes
 		go sendhandshake(conn)
-		go ListenForMessages(conn, lostConnChan, msgChan)
+		go listenForMessages(conn, lostConnChan, msgChan)
 	}
 }
 
@@ -73,11 +72,14 @@ func StartTCPServer(port string, newconnChan chan *net.TCPConn, lostConnChan cha
 //Check if master exists by listening for UDP message
 func SearchForMaster(port string) (bool, string) {
 	udpAddr, err := net.ResolveUDPAddr("udp4", port)
-	checkError(err)
+	if err != nil {
+		return false, ""
+	}
 
 	listener, err := net.ListenUDP("udp", udpAddr)
-	checkError(err)
-
+	if err != nil {
+		return false, ""
+	}
 	//timeout after 1 second
 	listener.SetReadDeadline(time.Now().Add(1 * time.Second))
 
@@ -118,11 +120,11 @@ func ConnectToMaster(masterAddr string, msgChan chan Message, lostMasterChan cha
 	if err != nil {
 		return nil
 	}
-	
+
 	//start threads that reads messages from master and sends handshakes
-	go ListenForMessages(conn, lostMasterChan, msgChan)
+	go listenForMessages(conn, lostMasterChan, msgChan)
 	go sendhandshake(conn)
-	
+
 	fmt.Println("Connection established!")
 	return conn
 }
@@ -149,7 +151,7 @@ func HandleLostConnection(masterQueue int, msgChan chan Message, lostMasterChan 
 			masterQueue -= 1
 		} else if masterQueue == 0 {
 			fmt.Println("Something is very wrong... I cannot even connect to myself! I will keep trying to connect in the background...")
-			cmd := exec.Command("mate-terminal", "-x", "killall",  "Master")
+			cmd := exec.Command("mate-terminal", "-x", "killall", "Master")
 			err := cmd.Start()
 			if err != nil {
 				fmt.Println(err.Error())
@@ -174,10 +176,10 @@ func HandleLostConnection(masterQueue int, msgChan chan Message, lostMasterChan 
 
 //send a handshake to signal that the process is still alive and connected
 func sendhandshake(conn *net.TCPConn) {
-	if (conn != nil) {
+	if conn != nil {
 		for {
 			time.Sleep(500 * time.Millisecond)
-			 _, err := conn.Write([]byte("0Handshake"))
+			_, err := conn.Write([]byte(strconv.Itoa(HANDSHAKE)+"\n"))
 			if err != nil {
 				return
 			}
@@ -186,7 +188,7 @@ func sendhandshake(conn *net.TCPConn) {
 }
 
 //Listen for messages over the TCP connection
-func ListenForMessages(conn *net.TCPConn, lostConnChan chan *net.TCPConn, msgChan chan Message) {
+func listenForMessages(conn *net.TCPConn, lostConnChan chan *net.TCPConn, msgChan chan Message) {
 	addr := conn.RemoteAddr()
 	var buf [1024]byte
 	for {
@@ -203,7 +205,7 @@ func ListenForMessages(conn *net.TCPConn, lostConnChan chan *net.TCPConn, msgCha
 			conn.Close()
 			return
 		}
-		
+
 		//if sending messages to fast, the buffer may conatin several messages. Split them!
 		str := string(buf[0:n])
 		messages := strings.SplitAfter(str, "\n")
@@ -211,7 +213,7 @@ func ListenForMessages(conn *net.TCPConn, lostConnChan chan *net.TCPConn, msgCha
 			//send message to the thread that handles it
 			var m Message
 			m.Sender = conn
-			m.Msg = messages[i][0:len(messages[i])-1]
+			m.Msg = messages[i][0 : len(messages[i])-1]
 			msgChan <- m
 		}
 	}
@@ -225,36 +227,36 @@ func SendMessage(conn *net.TCPConn, data interface{}) {
 		//data is a queue number
 		data := data.(int)
 		msg := EncodeQueue(data)
-		if (conn != nil) {
-	        conn.Write([]byte(msg))
-        }
+		if conn != nil {
+			conn.Write([]byte(msg))
+		}
 		break
 	case Event:
 		//data is a button event
 		data := data.(Event)
 		msg := EncodeEvent(data)
-		if (conn != nil) {
-	        conn.Write([]byte(msg))
-        }
+		if conn != nil {
+			conn.Write([]byte(msg))
+		}
 		break
 	case ElevatorStruct:
 		//data is an elevatorStruct
 		data := data.(ElevatorStruct)
 		msg := EncodeElevatorStruct(data)
-		if (conn != nil) {
-	        conn.Write([]byte(msg))
-        }
+		if conn != nil {
+			conn.Write([]byte(msg))
+		}
 		break
 	case ElevatorMap:
 		data := data.(ElevatorMap)
 		msg := EncodeElevatorMap(data)
-		if (conn != nil) {
-	        conn.Write([]byte(msg))
-        }
+		if conn != nil {
+			conn.Write([]byte(msg))
+		}
 	}
 }
 
-//just print the error message
+//just print the error message and exit
 func checkError(err error) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %s", err.Error())
